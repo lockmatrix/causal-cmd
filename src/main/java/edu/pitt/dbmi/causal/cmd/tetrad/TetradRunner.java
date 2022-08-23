@@ -23,15 +23,8 @@ import edu.cmu.tetrad.algcomparison.algorithm.AlgorithmFactory;
 import edu.cmu.tetrad.algcomparison.algorithm.MultiDataSetAlgorithm;
 import edu.cmu.tetrad.algcomparison.algorithm.cluster.ClusterAlgorithm;
 import edu.cmu.tetrad.algcomparison.utils.HasKnowledge;
-import edu.cmu.tetrad.data.DataModel;
-import edu.cmu.tetrad.data.DataSet;
-import edu.cmu.tetrad.data.ICovarianceMatrix;
-import edu.cmu.tetrad.data.IKnowledge;
-import edu.cmu.tetrad.graph.Dag;
-import edu.cmu.tetrad.graph.Graph;
-import edu.cmu.tetrad.graph.GraphUtils;
-import edu.cmu.tetrad.graph.Node;
-import edu.cmu.tetrad.graph.NodeType;
+import edu.cmu.tetrad.data.*;
+import edu.cmu.tetrad.graph.*;
 import edu.cmu.tetrad.search.DagToPag;
 import edu.cmu.tetrad.search.SearchGraphUtils;
 import edu.cmu.tetrad.search.TsDagToPag;
@@ -40,6 +33,9 @@ import edu.pitt.dbmi.causal.cmd.AlgorithmRunException;
 import edu.pitt.dbmi.causal.cmd.CmdArgs;
 import edu.pitt.dbmi.causal.cmd.data.DataFiles;
 import edu.pitt.dbmi.causal.cmd.util.DateTime;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.PrintStream;
 import java.rmi.MarshalledObject;
@@ -48,8 +44,6 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * The class {@code TetradRunner} is a class for handling running Tetrad search
@@ -122,6 +116,32 @@ public class TetradRunner {
             out.println("--------------------------------------------------------------------------------");
         }
         out.printf("End search: %s%n", DateTime.printNow());
+
+        graphList.forEach(graph -> graphs.add(manipulateGraph(graph)));
+    }
+
+    public List<DataModel> loadData(PrintStream out) throws AlgorithmRunException, IOException {
+        return DataFiles.readInDatasets(cmdArgs, out);
+    }
+
+    public IKnowledge createKnowledge() {
+        return new Knowledge2();
+    }
+
+    public void runAlgorithmRaw(List<DataModel> dataModels, IKnowledge knowledge) throws AlgorithmRunException {
+        final Algorithm algorithm = getAlgorithm(cmdArgs);
+
+        final boolean acceptsKnowledge = TetradAlgorithms.getInstance().acceptKnowledge(cmdArgs.getAlgorithmClass());
+        final boolean hasKnowledge = !(knowledge == null || knowledge.getVariables().isEmpty());
+
+        // add knowledge, if any
+        if (acceptsKnowledge && hasKnowledge) {
+            ((HasKnowledge) algorithm).setKnowledge(knowledge);
+        }
+
+        final Parameters parameters = Tetrad.getParameters(cmdArgs);
+
+        List<Graph> graphList = runSearch(algorithm, parameters, dataModels);
 
         graphList.forEach(graph -> graphs.add(manipulateGraph(graph)));
     }
