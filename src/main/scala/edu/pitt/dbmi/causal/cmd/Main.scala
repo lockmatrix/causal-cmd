@@ -98,11 +98,10 @@ object Main {
       }
 
       add_forbid_cross(target_vals, group.W)
-      add_forbid_cross(group.W, group.C)
 
       add_forbid_cross(target_vals, group.Q)
       add_forbid_cross(group.Q, target_vals)
-      add_forbid_cross(group.Q, group.W ++ group.C)
+      add_forbid_cross(group.Q, group.W)
 
       add_forbid_cross(group.C, target_vals)
       add_forbid_cross(group.C, group.W ++ group.Q)
@@ -252,15 +251,16 @@ object Main {
     println("init graph:")
     println(init_graph.format_graph_txt)
 
-    val init_edges = init_graph.graph.getEdges.asScala.toArray
-    val init_c = init_edges
-      .filter(e => (Seq("treatment", "outcome").contains(e.getNode1.getName)))
-      .map(_.getNode1.getName)
-      .filterNot(Seq("treatment", "outcome").contains)
-      .toSet
+    val treat_children = init_graph.graph.getChildren(init_graph.graph.getNode("treatment"))
+      .asScala.map(_.getName).toSet
+
+    val outcome_children = init_graph.graph.getChildren(init_graph.graph.getNode("outcome"))
+      .asScala.map(_.getName).toSet
+
+    val init_c = treat_children.intersect(outcome_children)
     val init_w = feats.toSet.diff(init_c).toArray.toSet
-    val init_state_base = FeatGroup(W=init_w, Q=Set(), C=init_c)
     val init_q = Set[String]()
+    val init_state_base = FeatGroup(W = init_w, Q = Set(), C = init_c)
 
     val search_start_states = new ArrayBuffer[FeatGroup]()
     search_start_states += init_state_base
