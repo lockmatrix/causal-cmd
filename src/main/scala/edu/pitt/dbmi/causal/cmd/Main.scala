@@ -12,6 +12,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.parallel.CollectionConverters.ArrayIsParallelizable
 import scala.collection.parallel.ForkJoinTaskSupport
 import scala.jdk.CollectionConverters.CollectionHasAsScala
+import scala.math.Ordering.Implicits.infixOrderingOps
 import scala.util.Random
 
 object Main {
@@ -21,6 +22,7 @@ object Main {
 
   case class GraphResultWrapper(graph: Graph, featGroup: FeatGroup, desc: String) {
     def score: Double = graph.getAttribute("BIC").asInstanceOf[java.lang.Double].doubleValue()
+    def score_tuple = (score, -featGroup.C.size)
 
     def format_graph_txt: String = graph.toString
   }
@@ -138,9 +140,9 @@ object Main {
               getStateGraph(FeatGroup(w2, state.Q, state.C ++ Set(feat)), s"${feat}->C"),
             )
           }).toArray
-            .maxBy(_.score)
+            .maxBy(_.score_tuple)
 
-          if (maxResult.score > base.score) {
+          if (maxResult.score_tuple > base.score_tuple) {
             base = maxResult
             state = maxResult.featGroup
             println(f"Update ${base.desc}, ${base.score} ${base.featGroup}")
@@ -174,9 +176,9 @@ object Main {
               getStateGraph(FeatGroup(state.W, state.Q ++ Set(feat), c2), s"${feat}->Q"),
             )
           }).toArray
-            .maxBy(_.score)
+            .maxBy(_.score_tuple)
 
-          if (maxResult.score > base.score) {
+          if (maxResult.score_tuple > base.score_tuple) {
             base = maxResult
             state = maxResult.featGroup
             println(f"Update ${base.desc}, ${base.score} ${base.featGroup}")
@@ -210,9 +212,9 @@ object Main {
               getStateGraph(FeatGroup(state.W, q2, state.C ++ Set(feat)), s"${feat}->C"),
             )
           }).toArray
-            .maxBy(_.score)
+            .maxBy(_.score_tuple)
 
-          if (maxResult.score > base.score) {
+          if (maxResult.score_tuple > base.score_tuple) {
             base = maxResult
             state = maxResult.featGroup
             println(f"Update ${base.desc}, ${base.score} ${base.featGroup}")
@@ -298,7 +300,8 @@ object Main {
         println(f"${result.desc}, ${result.score} ${result.featGroup}")
         result
       }
-      .sortBy(-_.score)
+      .sortBy(_.score_tuple)
+      .reverse
 
     println("multi restart results:")
     search_result_list.foreach(g=>{

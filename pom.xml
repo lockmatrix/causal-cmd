@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>edu.pitt.dbmi</groupId>
     <artifactId>causal-cmd</artifactId>
-    <version>1.4.1-my</version>
+    <version>1.4.1-my2</version>
     <packaging>jar</packaging>
 
     <properties>
