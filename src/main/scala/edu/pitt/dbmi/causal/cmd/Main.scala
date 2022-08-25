@@ -15,8 +15,8 @@ import scala.jdk.CollectionConverters.CollectionHasAsScala
 import scala.util.Random
 
 object Main {
-  case class FeatGroup(W: Set[String], Q: Set[String], C: Set[String], A: Set[String]) {
-    override def toString = f"Group(W=[${W.mkString(",")}], Q=[${Q.mkString(",")}], C=[${C.mkString(",")}], A=[${A.mkString(",")}])"
+  case class FeatGroup(W: Set[String], Q: Set[String], C: Set[String]) {
+    override def toString = f"Group(W=[${W.toArray.sorted.mkString(",")}], Q=[${Q.toArray.sorted.mkString(",")}], C=[${C.toArray.sorted.mkString(",")}])"
   }
 
   case class GraphResultWrapper(graph: Graph, featGroup: FeatGroup, desc: String) {
@@ -44,6 +44,21 @@ object Main {
     val feats = data.get(0).getVariableNames.asScala.toArray.filter(_.startsWith("V"))
 
     val cache = new ConcurrentHashMap[FeatGroup, GraphResultWrapper]()
+
+    def getInitGraph(): GraphResultWrapper = {
+      val knowledge = tetradRunner.createKnowledge()
+
+      knowledge.addVariable("treatment")
+      knowledge.addVariable("outcome")
+      feats.foreach(f => knowledge.addVariable(f))
+
+      knowledge.setRequired("treatment", "outcome")
+      knowledge.setForbidden("outcome", "treatment")
+
+      val result = GraphResultWrapper(runAlgorithm(cmdArgs, data, knowledge), FeatGroup(Set(), Set(), Set()), "init_search")
+      println(f"${result.desc}, ${result.score}")
+      result
+    }
 
     def getStateGraph(group: FeatGroup, log_desc: String): GraphResultWrapper = {
       val cached_result = cache.get(group)
@@ -82,23 +97,15 @@ object Main {
         }
       }
 
-      add_forbid_inner(group.W)
       add_forbid_cross(target_vals, group.W)
-      add_forbid_cross(group.W, group.C ++ group.A)
+      add_forbid_cross(group.W, group.C)
 
-      add_forbid_inner(group.Q)
       add_forbid_cross(target_vals, group.Q)
       add_forbid_cross(group.Q, target_vals)
-      add_forbid_cross(group.Q, group.W ++ group.C ++ group.A)
+      add_forbid_cross(group.Q, group.W ++ group.C)
 
-      add_forbid_inner(group.C)
       add_forbid_cross(group.C, target_vals)
-      add_forbid_cross(group.C, group.W ++ group.Q ++ group.A)
-
-      add_forbid_inner(group.A)
-      add_forbid_cross(target_vals, group.A)
-      add_forbid_cross(group.A, target_vals)
-      add_forbid_cross(group.A, group.W ++ group.C ++ group.Q)
+      add_forbid_cross(group.C, group.W ++ group.Q)
 
       val result = GraphResultWrapper(runAlgorithm(cmdArgs, data, knowledge), group, log_desc)
       cache.putIfAbsent(group, result)
@@ -110,43 +117,6 @@ object Main {
       var base: GraphResultWrapper = start_state
       var state = start_state.featGroup
       println(f"${base.desc}, ${base.score} ${base.featGroup}")
-
-      def tryFromA(): Boolean = {
-        println("tryFromA...")
-
-        var changed = false
-        while (true) {
-          val job_par = state.A.toArray
-            .par
-
-          if(job_par.isEmpty) {
-            return changed
-          }
-
-          job_par.tasksupport = new ForkJoinTaskSupport(thread_pool)
-
-          val maxResult = job_par.flatMap(feat => {
-            val a2 = state.A.filter(_ != feat)
-            Seq(
-              getStateGraph(FeatGroup(state.W ++ Set(feat), state.Q, state.C, a2), s"${feat}->W"),
-              getStateGraph(FeatGroup(state.W, state.Q ++ Set(feat), state.C, a2), s"${feat}->Q"),
-              getStateGraph(FeatGroup(state.W, state.Q, state.C ++ Set(feat), a2), s"${feat}->C")
-            )
-          }).toArray
-            .maxBy(_.score)
-
-          if (maxResult.score > base.score) {
-            base = maxResult
-            state = maxResult.featGroup
-            println(f"Update ${base.desc}, ${base.score} ${base.featGroup}")
-            changed = true
-          }
-          else {
-            return changed
-          }
-        }
-        return changed
-      }
 
       def tryFromW(): Boolean = {
         println("tryFromW...")
@@ -165,9 +135,8 @@ object Main {
           val maxResult = job_par.flatMap(feat => {
             val w2 = state.W.filter(_ != feat)
             Seq(
-              getStateGraph(FeatGroup(w2, state.Q ++ Set(feat), state.C, state.A), s"${feat}->Q"),
-              getStateGraph(FeatGroup(w2, state.Q, state.C ++ Set(feat), state.A), s"${feat}->C"),
-              getStateGraph(FeatGroup(w2, state.Q, state.C, state.A ++ Set(feat)), s"${feat}->A"),
+              getStateGraph(FeatGroup(w2, state.Q ++ Set(feat), state.C), s"${feat}->Q"),
+              getStateGraph(FeatGroup(w2, state.Q, state.C ++ Set(feat)), s"${feat}->C"),
             )
           }).toArray
             .maxBy(_.score)
@@ -202,9 +171,8 @@ object Main {
           val maxResult = job_par.flatMap(feat => {
             val c2 = state.C.filter(_ != feat)
             Seq(
-              getStateGraph(FeatGroup(state.W ++ Set(feat), state.Q, c2, state.A), s"${feat}->W"),
-              getStateGraph(FeatGroup(state.W, state.Q ++ Set(feat), c2, state.A), s"${feat}->Q"),
-              getStateGraph(FeatGroup(state.W, state.Q, c2, state.A ++ Set(feat)), s"${feat}->A"),
+              getStateGraph(FeatGroup(state.W ++ Set(feat), state.Q, c2), s"${feat}->W"),
+              getStateGraph(FeatGroup(state.W, state.Q ++ Set(feat), c2), s"${feat}->Q"),
             )
           }).toArray
             .maxBy(_.score)
@@ -239,9 +207,8 @@ object Main {
           val maxResult = job_par.flatMap(feat => {
             val q2 = state.Q.filter(_ != feat)
             Seq(
-              getStateGraph(FeatGroup(state.W ++ Set(feat), q2, state.C, state.A), s"${feat}->W"),
-              getStateGraph(FeatGroup(state.W, q2, state.C ++ Set(feat), state.A), s"${feat}->C"),
-              getStateGraph(FeatGroup(state.W, q2, state.C, state.A ++ Set(feat)), s"${feat}->A"),
+              getStateGraph(FeatGroup(state.W ++ Set(feat), q2, state.C), s"${feat}->W"),
+              getStateGraph(FeatGroup(state.W, q2, state.C ++ Set(feat)), s"${feat}->C"),
             )
           }).toArray
             .maxBy(_.score)
@@ -260,7 +227,6 @@ object Main {
       }
 
       val action_list = Seq(
-        ()=> tryFromA(),
         () => tryFromQ(),
         () => tryFromW(),
         () => tryFromC(),
@@ -282,26 +248,56 @@ object Main {
       base
     }
 
-    val search_result_list = (0 until 10)
-      .map(run_idx =>{
-        val state = {
-          val w_buffer = new ArrayBuffer[String]()
-          val q_buffer = new ArrayBuffer[String]()
-          val c_buffer = new ArrayBuffer[String]()
-          val a_buffer = new ArrayBuffer[String]()
+    val init_graph = getInitGraph()
+    println("init graph:")
+    println(init_graph.format_graph_txt)
 
-          val random = new Random()
-          for (f <- feats) {
-            val target = Seq(q_buffer, w_buffer, c_buffer, a_buffer)(random.nextInt(4))
-            target += f
+    val init_edges = init_graph.graph.getEdges.asScala.toArray
+    val init_c = init_edges
+      .filter(e => (Seq("treatment", "outcome").contains(e.getNode1.getName)))
+      .map(_.getNode1.getName)
+      .filterNot(Seq("treatment", "outcome").contains)
+      .toSet
+    val init_w = feats.toSet.diff(init_c).toArray.toSet
+    val init_state_base = FeatGroup(W=init_w, Q=Set(), C=init_c)
+    val init_q = Set[String]()
+
+    val search_start_states = new ArrayBuffer[FeatGroup]()
+    search_start_states += init_state_base
+
+    val random = new Random()
+
+    for(_ <- 1 until 10) {
+      val w_buffer = new ArrayBuffer[String]()
+      val q_buffer = new ArrayBuffer[String]()
+      val c_buffer = new ArrayBuffer[String]()
+
+      for (f <- feats) {
+        if(random.nextFloat() < 0.8) {
+          if(init_w.contains(f)) {
+            w_buffer += f
+          } else if(init_q.contains(f)) {
+            q_buffer += f
+          } else if(init_c.contains(f)) {
+            c_buffer += f
           }
-          FeatGroup(W = w_buffer.toSet, Q = q_buffer.toSet, C = c_buffer.toSet, A = a_buffer.toSet)
+        } else {
+          val target = Seq(q_buffer, w_buffer, c_buffer)(random.nextInt(3))
+          target += f
         }
+      }
+      val state = FeatGroup(W = w_buffer.toSet, Q = q_buffer.toSet, C = c_buffer.toSet)
+      search_start_states += state
+    }
+
+
+    val search_result_list = search_start_states.zipWithIndex
+      .map{case (state, run_idx) =>
         val state_graph = getStateGraph(state, f"Random_Run${run_idx}%02d")
         val result = search(state_graph).copy(desc = f"Run${run_idx}%02d_Result")
         println(f"${result.desc}, ${result.score} ${result.featGroup}")
         result
-      })
+      }
       .sortBy(-_.score)
 
     println("multi restart results:")
