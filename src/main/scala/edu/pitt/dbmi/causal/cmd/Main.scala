@@ -8,9 +8,11 @@ import java.io.{BufferedOutputStream, PrintStream}
 import java.nio.file.{Files, Paths, StandardOpenOption}
 import java.util
 import java.util.concurrent.{ConcurrentHashMap, ForkJoinPool}
+import scala.collection.mutable.ArrayBuffer
 import scala.collection.parallel.CollectionConverters.ArrayIsParallelizable
 import scala.collection.parallel.ForkJoinTaskSupport
 import scala.jdk.CollectionConverters.CollectionHasAsScala
+import scala.util.Random
 
 object Main {
   case class FeatGroup(W: Set[String], Q: Set[String], C: Set[String], A: Set[String]) {
@@ -104,10 +106,10 @@ object Main {
       result
     }
 
-    def search(): GraphResultWrapper = {
-      var state = FeatGroup(Set(), Set(), Set(), feats.toSet)
-
-      var base = getStateGraph(state, "All_A")
+    def search(start_state: GraphResultWrapper): GraphResultWrapper = {
+      var base: GraphResultWrapper = start_state
+      var state = start_state.featGroup
+      println(f"${base.desc}, ${base.score} ${base.featGroup}")
 
       def tryFromA(): Boolean = {
         println("tryFromA...")
@@ -280,7 +282,34 @@ object Main {
       base
     }
 
-    val search_result = search()
+    val search_result_list = (0 until 10)
+      .map(run_idx =>{
+        val state = {
+          val w_buffer = new ArrayBuffer[String]()
+          val q_buffer = new ArrayBuffer[String]()
+          val c_buffer = new ArrayBuffer[String]()
+          val a_buffer = new ArrayBuffer[String]()
+
+          val random = new Random()
+          for (f <- feats) {
+            val target = Seq(q_buffer, w_buffer, c_buffer, a_buffer)(random.nextInt(4))
+            target += f
+          }
+          FeatGroup(W = w_buffer.toSet, Q = q_buffer.toSet, C = c_buffer.toSet, A = a_buffer.toSet)
+        }
+        val state_graph = getStateGraph(state, f"Random_Run${run_idx}%02d")
+        val result = search(state_graph).copy(desc = f"Run${run_idx}%02d_Result")
+        println(f"${result.desc}, ${result.score} ${result.featGroup}")
+        result
+      })
+      .sortBy(-_.score)
+
+    println("multi restart results:")
+    search_result_list.foreach(g=>{
+      println(f"${g.desc}, ${g.score} ${g.featGroup}")
+    })
+
+    val search_result = search_result_list.head
     println(search_result.score)
     println(search_result.featGroup)
     println(search_result.format_graph_txt)
